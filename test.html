@@ -41,12 +41,14 @@ function ready() {
 
     // 2. how would we make the shader constantly update from the canvas
     const fragment = `
-        uniform sampler2D TEXTURE; // texture captured here
+        precision mediump float;
+        uniform sampler2D TEXTURE;
         varying vec2 fragCoords;
         void main() {
-            // texture comes in flipped and on different coordinates
-            vec2 normalizedCoordinates = (fragCoords * vec2(0.5, -0.5)) + vec2(0.5, 0.5);
-            gl_FragColor = texture2D(TEXTURE, normalizedCoordinates);
+            // Ensure coordinates are properly normalized
+            vec2 texCoord = (fragCoords + 1.0) * 0.5;
+            texCoord.y = 1.0 - texCoord.y; // Flip Y coordinate
+            gl_FragColor = texture2D(TEXTURE, texCoord);
         }
     `;
 
@@ -61,7 +63,7 @@ function ready() {
 	container.cache();
 	const cc = container.cacheCanvas;
     
-    // Create texture once and store it
+    // Create texture once and store it for ZIM Shader
     let shaderTexture;
     const before = function(program, gl, canvas) {    
         shaderTexture = gl.createTexture();    
@@ -69,22 +71,167 @@ function ready() {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cc);
     }
 
-    const shader = new Shader(500, 500, fragment, null, vertex, false, before).center().alp(.8).mov(50,50).drag();
+    const shader = new Shader(500, 500, fragment, null, vertex, false, before).center().alp(.8).mov(400,50).drag();
 
-    // Update both the container cache and the shader texture on each tick
+    // Create WebGL canvas and context for raw implementation
+    const glCanvas = document.createElement('canvas');
+    glCanvas.width = 300;  // Smaller size
+    glCanvas.height = 300; // Smaller size
+    glCanvas.style.position = 'absolute';
+    glCanvas.style.left = '50px';  // Position on left
+    glCanvas.style.top = '50px';
+    document.body.appendChild(glCanvas);
+
+    // Add label for raw WebGL version
+    const rawLabel = document.createElement('div');
+    rawLabel.style.position = 'absolute';
+    rawLabel.style.left = '50px';
+    rawLabel.style.top = '360px';  // Below the canvas
+    rawLabel.style.color = 'white';
+    rawLabel.style.fontFamily = 'monospace';
+    rawLabel.style.background = 'rgba(0,0,0,0.7)';
+    rawLabel.style.padding = '5px';
+    rawLabel.textContent = 'Raw WebGL Implementation';
+    document.body.appendChild(rawLabel);
+
+    const gl = glCanvas.getContext('webgl', {version: ""});
+    if (!gl) {
+        console.error('WebGL not supported');
+        return;
+    }
+
+    // Create and compile shaders for raw implementation
+    const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vertexShader, vertex);
+    gl.compileShader(vertexShader);
+    if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+        console.error('Vertex shader compilation failed:', gl.getShaderInfoLog(vertexShader));
+        return;
+    }
+
+    const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fragmentShader, fragment);
+    gl.compileShader(fragmentShader);
+    if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+        console.error('Fragment shader compilation failed:', gl.getShaderInfoLog(fragmentShader));
+        return;
+    }
+
+    // Create and link program for raw implementation
+    const program = gl.createProgram();
+    gl.attachShader(program, vertexShader);
+    gl.attachShader(program, fragmentShader);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        console.error('Program linking failed:', gl.getProgramInfoLog(program));
+        return;
+    }
+
+    // Create vertex buffer for raw implementation
+    const vertices = new Float32Array([
+        -1.0, -1.0,
+         1.0, -1.0,
+        -1.0,  1.0,
+         1.0,  1.0
+    ]);
+    const vertexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+    // Create and setup texture for raw implementation
+    const rawTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, rawTexture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cc);
+
+    // Get attribute and uniform locations for raw implementation
+    const positionLocation = gl.getAttribLocation(program, 'vertexPosition');
+    gl.enableVertexAttribArray(positionLocation);
+    gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+    // Animation loop for raw implementation
+    function render() {
+        // Update container cache
+        container.updateCache();
+
+        // Update texture with new cache contents
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, rawTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cc);
+
+        // Clear and draw
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        
+        gl.useProgram(program);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        requestAnimationFrame(render);
+    }
+
+    render();
+
+    // Update ZIM shader texture on each tick
     Ticker.add(()=>{
         container.updateCache();
         // Update the texture with new cache contents
         const gl = shader.gl;
+        gl.activeTexture(gl.TEXTURE0); // Ensure we're using the first texture unit
         gl.bindTexture(gl.TEXTURE_2D, shaderTexture);
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cc);
     });
 
-    new Label("Shader is on top - you can drag it - it is now updating with the cacheCanvas").scaleTo(S,90).alp(.7).pos(0,50,CENTER)
+    // Debug visualization
+    const debugDiv = document.createElement('div');
+    debugDiv.style.position = 'fixed';
+    debugDiv.style.top = '10px';
+    debugDiv.style.left = '10px';
+    debugDiv.style.background = 'rgba(0,0,0,0.7)';
+    debugDiv.style.padding = '10px';
+    debugDiv.style.color = 'white';
+    debugDiv.style.fontFamily = 'monospace';
+    document.body.appendChild(debugDiv);
+
+    let frameCount = 0;
+    let lastTime = performance.now();
+    let fps = 0;
+
+    function debugUpdate() {
+        frameCount++;
+        const currentTime = performance.now();
+        
+        if (currentTime - lastTime >= 1000) {
+            fps = frameCount;
+            frameCount = 0;
+            lastTime = currentTime;
+        }
+
+        const previewCanvas = document.createElement('canvas');
+        previewCanvas.width = 100;
+        previewCanvas.height = 100;
+        const ctx = previewCanvas.getContext('2d');
+        ctx.drawImage(cc, 0, 0, 100, 100);
+
+        debugDiv.innerHTML = `
+            FPS: ${fps}<br>
+            Cache Size: ${cc.width}x${cc.height}<br>
+            Last Update: ${new Date().toLocaleTimeString()}<br>
+            <img src="${previewCanvas.toDataURL()}" style="border:1px solid white;">
+        `;
+
+        requestAnimationFrame(debugUpdate);
+    }
+
+    debugUpdate();
+
+    new Label("ZIM Shader Implementation").scaleTo(S,90).alp(.7).pos(400,360,CENTER)
 
     
 } // end ready
