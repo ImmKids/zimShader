@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+<meta charset="utf-8" />
+<title>ZIM - Shader with ZIM DisplayObject Input - Code Creativity</title>
+
+<!-- zimjs.com - JavaScript Canvas Framework -->
+
+<script type=module>
+
+import zim from "https://zimjs.org/cdn/017/zim";
+
+// See Docs under Frame for FIT, FILL, FULL, and TAG
+new Frame(FIT, 1024, 768, pink, dark, ready);
+function ready() {
+    
+    // given F (Frame), S (Stage), W (width), H (height)
+    // put code here
+
+    // We followed the post here:
+    // https://medium.com/@banksysan_10088/webgl-checkerboard-42e15490603c
+    // to make three versions:
+
+    // FRAGMENT - https://zimjs.com/016/shaders/checkerboard.html
+    // VERTEX - https://zimjs.com/016/shaders/checkerboard_vertex.html
+    // IMAGE - https://zimjs.com/016/shaders/checkerboard_image.html
+
+
+	// 1. could only get to work in OpenGL 1.0 (version:"")
+    STYLE = {version:""}
+
+    const vertex = `
+        attribute vec2 vertexPosition;
+        varying vec2 fragCoords; // will get passed to fragment shader
+        void main() {
+            fragCoords = vertexPosition;
+            gl_Position = vec4(vertexPosition, 0.0, 1.0);
+        }
+    `;
+
+    // 2. how would we make the shader constantly update from the canvas
+    const fragment = `
+        uniform sampler2D TEXTURE; // texture captured here
+        varying vec2 fragCoords;
+        void main() {
+            // texture comes in flipped and on different coordinates
+            vec2 normalizedCoordinates = (fragCoords * vec2(0.5, -0.5)) + vec2(0.5, 0.5);
+            gl_FragColor = texture2D(TEXTURE, normalizedCoordinates);
+        }
+    `;
+
+    const container = new Container(500,500).center();
+	new Rectangle(500,500,white).addTo(container);
+	new Circle(200, red).center(container).animate({
+        props:{scale:2},
+        rewind:true,
+        loop:true
+    }).drag({onTop:false});
+	new Label("hey there").center(container)
+	container.cache();
+	const cc = container.cacheCanvas;
+    
+    // Create texture once and store it
+    let shaderTexture;
+    const before = function(program, gl, canvas) {    
+        shaderTexture = gl.createTexture();    
+        gl.bindTexture(gl.TEXTURE_2D, shaderTexture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cc);
+    }
+
+    const shader = new Shader(500, 500, fragment, null, vertex, false, before).center().alp(.8).mov(50,50).drag();
+
+    // Update both the container cache and the shader texture on each tick
+    Ticker.add(()=>{
+        container.updateCache();
+        // Update the texture with new cache contents
+        const gl = shader.gl;
+        gl.bindTexture(gl.TEXTURE_2D, shaderTexture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cc);
+    });
+
+    new Label("Shader is on top - you can drag it - it is now updating with the cacheCanvas").scaleTo(S,90).alp(.7).pos(0,50,CENTER)
+
+    
+} // end ready
+
+</script>
+    <meta name="viewport" content="width=device-width, user-scalable=no" />
+</head>
+
+<body></body>
+
+</html>
